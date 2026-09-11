@@ -26,7 +26,7 @@ async function getAppAccessToken() {
   return data.access_token;
 }
 
-async function isLive(slug) {
+async function getChannelStatus(slug) {
   const token = await getAppAccessToken();
   const res = await fetch(
     `https://api.kick.com/public/v1/channels?slug=${encodeURIComponent(slug)}`,
@@ -34,14 +34,38 @@ async function isLive(slug) {
   );
   if (!res.ok) throw new Error(`Kick channel lookup failed: ${res.status}`);
   const json = await res.json();
-  return Boolean(json.data?.[0]?.stream?.is_live);
+  const channel = json.data?.[0];
+  return {
+    isLive: Boolean(channel?.stream?.is_live),
+    title: channel?.stream_title || "",
+    viewers: channel?.stream?.viewer_count,
+  };
+}
+
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function buildLiveMessage(slug, status) {
+  const lines = [`🔴 <b>${escapeHtml(slug)} just went live on Kick!</b>`];
+  if (status.title) lines.push(`🎮 ${escapeHtml(status.title)}`);
+  if (typeof status.viewers === "number") lines.push(`👀 ${status.viewers.toLocaleString()} watching`);
+  lines.push("");
+  lines.push(`▶️ <a href="https://kick.com/${slug}">Watch now</a>`);
+  lines.push("✅ Chat bot will start posting automatically.");
+  return lines.join("\n");
 }
 
 async function sendTelegram(text) {
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: CHAT_ID, text }),
+    body: JSON.stringify({
+      chat_id: CHAT_ID,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: false,
+    }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -62,15 +86,15 @@ function saveState(state) {
 }
 
 const state = loadState();
-const liveNow = await isLive(SLUG);
+const status = await getChannelStatus(SLUG);
 
-console.log(`${SLUG} live check: was=${state.wasLive} now=${liveNow}`);
+console.log(`${SLUG} live check: was=${state.wasLive} now=${status.isLive}`);
 
-if (liveNow && !state.wasLive) {
-  await sendTelegram(`🔴 ${SLUG} just went live on Kick! Make sure pm2 is running.`);
+if (status.isLive && !state.wasLive) {
+  await sendTelegram(buildLiveMessage(SLUG, status));
   console.log("Notified via Telegram.");
 }
 
-if (liveNow !== state.wasLive) {
-  saveState({ wasLive: liveNow });
+if (status.isLive !== state.wasLive) {
+  saveState({ wasLive: status.isLive });
 }
