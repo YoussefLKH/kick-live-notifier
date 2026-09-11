@@ -92,7 +92,8 @@ console.log(`${SLUG} live check: was=${state.wasLive} now=${status.isLive}`);
 
 if (status.isLive && !state.wasLive) {
   await sendTelegram(buildLiveMessage(SLUG, status));
-  console.log("Notified via Telegram.");
+  await sendTelegram(`⏰ <b>REMINDER:</b> turn on your PC and make sure pm2 (kick-chat-bot) is running!`);
+  console.log("Notified via Telegram (2 messages).");
 }
 
 if (status.isLive !== state.wasLive) {
